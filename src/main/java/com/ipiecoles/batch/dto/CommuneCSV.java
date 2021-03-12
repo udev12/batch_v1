@@ -44,4 +44,16 @@ public class CommuneCSV {
     public void setCoordonneesGps(String coordonneesGps) {
         this.coordonneesGps = coordonneesGps;
     }
+
+    @Override
+    public String toString() {
+        return "CommuneCSV{" +
+                "codeInsee='" + codeInsee + '\'' +
+                ", nom='" + nom + '\'' +
+                ", codePostal='" + codePostal + '\'' +
+                ", ligne5='" + ligne5 + '\'' +
+                ", libelleAcheminement='" + libelleAcheminement + '\'' +
+                ", coordonneesGps='" + coordonneesGps + '\'' +
+                '}';
+    }
 }

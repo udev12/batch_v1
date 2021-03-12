@@ -5,14 +5,13 @@ import com.ipiecoles.batch.dto.CommuneCSV;
 import com.ipiecoles.batch.exception.CommuneCSVException;
 import com.ipiecoles.batch.exception.NetworkException;
 import com.ipiecoles.batch.model.Commune;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.skip.AlwaysSkipItemSkipPolicy;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
@@ -47,7 +46,7 @@ import javax.sql.DataSource;
 @Configuration
 @EnableBatchProcessing
 @PropertySource("classpath:application.properties")
-public class CommunesImportBatch implements Tasklet {
+public class CommunesImportBatch /*implements Tasklet*/ {
 
     @Autowired
     public StepBuilderFactory stepBuilderFactory;
@@ -67,6 +66,40 @@ public class CommunesImportBatch implements Tasklet {
 
 //    @Autowired
 //    private EntityManagerFactory entityManagerFactory;
+
+    @Bean
+    public ItemReadListener<CommuneCSV> communeCSVItemReadListener(){
+        return new CommuneCSVItemListener();
+    }
+    @Bean
+    public ItemWriteListener<Commune> communeCSVItemWriteListener(){
+        return new CommuneCSVItemListener();
+    }
+
+
+    @Bean
+    public StepExecutionListener communeCSVImportStepListener(){
+        return new CommuneCSVImportStepListener();
+    }
+
+    @Bean
+    public ChunkListener communeCSVImportChunkListener(){
+        return new CommuneCSVImportChunkListener();
+    }
+
+    @Bean
+    public CommuneCSVItemListener communeCSVItemListener(){
+        return new CommuneCSVItemListener();
+    }
+    @Bean
+    public CommunesMissingCoordinatesSkipListener communesMissingCoordinatesSkipListener(){
+        return new CommunesMissingCoordinatesSkipListener();
+    }
+
+    @Bean
+    public CommunesCSVImportSkipListener communesCSVImportSkipListener(){
+        return new CommunesCSVImportSkipListener();
+    }
 
 
     // ex 2e step
@@ -90,7 +123,7 @@ public class CommunesImportBatch implements Tasklet {
     // writer : on récupère le writer jpa existant
 
     // step
-    @Bean
+//    @Bean
 //    public Step stepGetMissingCoordinates(){
 //        return stepBuilderFactory.get("getMissingCoordinates")
 //                .<Commune, Commune> chunk(10)
@@ -111,7 +144,7 @@ public class CommunesImportBatch implements Tasklet {
 //                .build();
 //    }
 
-//    @Bean
+    @Bean
     public Step stepGetMissingCoordinates(){
         FixedBackOffPolicy policy = new FixedBackOffPolicy();
         policy.setBackOffPeriod(2000);
@@ -131,17 +164,27 @@ public class CommunesImportBatch implements Tasklet {
 
 
     // maintenant, on n'a plus qu'à modifier le job
+    // sans flot
+//    @Bean
+//    public Job importCsvJob(Step stepHelloWorld, Step stepImportCSV, Step stepGetMissingCoordinates){
+//        return jobBuilderFactory.get("importCsvJob")
+//                .incrementer(new RunIdIncrementer())
+//                .flow(stepHelloWorld)
+//                .next(stepImportCSV)
+//                .next(stepGetMissingCoordinates)
+//                .end().build();
+//    }
+
+    // avec flot
     @Bean
     public Job importCsvJob(Step stepHelloWorld, Step stepImportCSV, Step stepGetMissingCoordinates){
         return jobBuilderFactory.get("importCsvJob")
                 .incrementer(new RunIdIncrementer())
                 .flow(stepHelloWorld)
                 .next(stepImportCSV)
-                .next(stepGetMissingCoordinates)
+                .on("COMPLETED_WITH_MISSING_COORDINATES").to(stepGetMissingCoordinates)
                 .end().build();
     }
-
-
 
 
     @Bean
@@ -206,13 +249,14 @@ public class CommunesImportBatch implements Tasklet {
         return new CommuneCSVItemProcessor();
     }
 
+
     @Bean
     public FlatFileItemReader<CommuneCSV> communesCSVItemReader() {
         return new FlatFileItemReaderBuilder<CommuneCSV>()
                 .name("communesCSVItemReader")
                 .linesToSkip(1)
 //                .resource(new ClassPathResource("laposte_hexasmal_test.csv"))
-                .resource(new ClassPathResource("laposte_hexasmal_test_skip.csv")) //laposte_hexasmal_test_skip
+                .resource(new ClassPathResource("laposte_hexasmal.csv")) //laposte_hexasmal_test_skip
                 .delimited()
                 .delimiter(";")
                 .names("codeInsee", "nom", "codePostal", "ligne5", "libelleAcheminement", "coordonneesGPS")
@@ -230,6 +274,7 @@ public class CommunesImportBatch implements Tasklet {
         return stepBuilderFactory.get("stepHelloWorld")
 //                .tasklet(helloWorldTasklet())
                 .tasklet(helloWorldTasklet())
+                .listener(helloWorldTasklet())
                 .build();
     }
 
@@ -295,6 +340,64 @@ public class CommunesImportBatch implements Tasklet {
 //                .build();
 //    }
 
+    // sans listener
+//    @Bean
+//    public Step stepImportCSV(){
+//        return stepBuilderFactory.get("importFile")
+//                .<CommuneCSV, Commune> chunk(CHUNK_SIZE)
+//                .reader(communesCSVItemReader())
+//                .processor(communeCSVToCommuneProcessor())
+//                .writer(writerJPA())
+//                .faultTolerant()
+//                .skipLimit(100)
+//                .skip(CommuneCSVException.class)
+////                .skip(IncorrectTokenCountException.class) // exception copié dan les logs
+//                .skip(FlatFileParseException.class) // exception copié dan les logs
+//                .build();
+//    }
+
+    // avec lister
+//    @Bean
+//    public Step stepImportCSV(){
+//        return stepBuilderFactory.get("importFile")
+//                .<CommuneCSV, Commune> chunk(CHUNK_SIZE)
+//                .reader(communesCSVItemReader())
+//                .processor(communeCSVToCommuneProcessor())
+//                .writer(writerJPA())
+//                .faultTolerant()
+//                .skipLimit(100)
+//                .skip(CommuneCSVException.class)
+//                .skip(FlatFileParseException.class) // exception copié dan les logs
+//                .listener(communesMissingCoordinatesSkipListener())
+//                .listener(communeCSVImportStepListener())
+//                .listener(communeCSVImportChunkListener())
+//                .listener(communeCSVItemListener())
+//                .listener(communeCSVToCommuneProcessor())
+//                .build();
+//    }
+    // sans flot
+//    @Bean
+//    public Step stepImportCSV(){
+//        return stepBuilderFactory.get("importFile")
+//                .<CommuneCSV, Commune> chunk(CHUNK_SIZE)
+//                .reader(communesCSVItemReader())
+//                .processor(communeCSVToCommuneProcessor())
+//                .writer(writerJPA())
+//                .faultTolerant()
+//                .skipPolicy(new AlwaysSkipItemSkipPolicy())
+//                .skip(CommuneCSVException.class)
+//                .skip(FlatFileParseException.class)
+//                .listener(communesCSVImportSkipListener())
+//                .listener(communeCSVImportStepListener())
+//                .listener(communeCSVImportChunkListener())
+////                .listener(communeCSVItemListener())
+//                .listener(communeCSVItemReadListener())
+//                .listener(communeCSVItemWriteListener())
+//                .listener(communeCSVToCommuneProcessor())
+//                .build();
+//    }
+
+    // avec flot
     @Bean
     public Step stepImportCSV(){
         return stepBuilderFactory.get("importFile")
@@ -303,15 +406,17 @@ public class CommunesImportBatch implements Tasklet {
                 .processor(communeCSVToCommuneProcessor())
                 .writer(writerJPA())
                 .faultTolerant()
-                .skipLimit(100)
+                .skipPolicy(new AlwaysSkipItemSkipPolicy())
                 .skip(CommuneCSVException.class)
-//                .skip(IncorrectTokenCountException.class) // exception copié dan les logs
-                .skip(FlatFileParseException.class) // exception copié dan les logs
+                .skip(FlatFileParseException.class)
+                .listener(communesCSVImportSkipListener())
+//                .listener(communeCSVImportStepListener())
+//                .listener(communeCSVImportChunkListener())
+//                .listener(communeCSVItemReadListener())
+                .listener(communeCSVItemWriteListener())
+                .listener(communeCSVToCommuneProcessor())
                 .build();
     }
-
-
-
 
 //    @Bean
 //    public Step stepAddCoord(){
@@ -323,9 +428,9 @@ public class CommunesImportBatch implements Tasklet {
 //                .build();
 //    }
 
-    @Override
-    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        return null;
-    }
+//    @Override
+//    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+//        return null;
+//    }
 
 }
